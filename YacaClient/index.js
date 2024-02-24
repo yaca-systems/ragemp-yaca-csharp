@@ -693,7 +693,7 @@ class YaCAClientModule {
         let cids = [];
         if (typeof ownMode != "undefined") {
             cids.push({
-                client_id: YaCAClientModule.getInstance().getPlayerByID(alt.Player.local.remoteId).clientId,
+                client_id: YaCAClientModule.getInstance().getPlayerByID(mp.players.local.remoteId).clientId,
                 mode: ownMode
             })
         }
