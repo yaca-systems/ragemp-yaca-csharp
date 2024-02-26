@@ -134,8 +134,6 @@ class YaCAClientModule {
     playersWithShortRange = new Map();
     playersInRadioChannel = new Map();
 
-    onPhoneWith = new Map();
-
     useWhisper = false;
 
     clamp(value, min = 0, max = 1) {
@@ -149,8 +147,8 @@ class YaCAClientModule {
             lastMegaphoneState: false,
             canUseMegaphone: false,
         };
-        if (!this.instance)
-            this.registerEvents();       
+
+        this.registerEvents();       
     }
 
     /***
@@ -395,11 +393,11 @@ class YaCAClientModule {
             }
 
             if (playersToRemove.length) {
-                YaCAClientModule.setPlayersCommType(playersToRemove, YacaFilterEnum.INTERCOM, false);
+                YaCAClientModule.setPlayersCommType(playersToRemove, YacaFilterEnum.INTERCOM, false, undefined, undefined, CommDeviceMode.TRANSCEIVER, CommDeviceMode.TRANSCEIVER);
             }
 
             if (playersToAdd.length) {
-                YaCAClientModule.setPlayersCommType(playersToAdd, YacaFilterEnum.INTERCOM, true);
+                YaCAClientModule.setPlayersCommType(playersToAdd, YacaFilterEnum.INTERCOM, true, undefined, undefined, CommDeviceMode.TRANSCEIVER, CommDeviceMode.TRANSCEIVER);
             }
         });
 
@@ -408,25 +406,17 @@ class YaCAClientModule {
             const target = this.getPlayerByID(targetID);
             if (!target) return;
 
+            this.inCall = state;
+        
             YaCAClientModule.setPlayersCommType(target, YacaFilterEnum.PHONE, state, undefined, undefined, CommDeviceMode.TRANSCEIVER, CommDeviceMode.TRANSCEIVER);
-
-            if (state) {
-                this.onPhoneWith.add(targetID);
-            } else {
-                this.onPhoneWith.delete(targetID);
-            }
         });
         mp.events.add("client:yaca:phoneOld", (targetID, state) => {
             const target = this.getPlayerByID(targetID);
             if (!target) return;
 
-            YaCAClientModule.setPlayersCommType(target, YacaFilterEnum.PHONE_HISTORICAL, state, undefined, undefined, CommDeviceMode.TRANSCEIVER, CommDeviceMode.TRANSCEIVER);
+            this.inCall = state;
 
-            if (state) {
-                this.onPhoneWith.add(targetID);
-            } else {
-                this.onPhoneWith.delete(targetID);
-            }
+            YaCAClientModule.setPlayersCommType(target, YacaFilterEnum.PHONE_HISTORICAL, state, undefined, undefined, CommDeviceMode.TRANSCEIVER, CommDeviceMode.TRANSCEIVER);
         });
         mp.events.add("client:yaca:phoneMute", (targetID, state, onCallstop = false) => {
             const target = this.getPlayerByID(targetID);
@@ -434,7 +424,7 @@ class YaCAClientModule {
 
             target.mutedOnPhone = state;
 
-            if (onCallstop || !this.onPhoneWith.has(targetID)) return;
+            if (onCallstop) return;
 
             if (this.useWhisper && target.remoteId == this.localPlayer.remoteId) {
                 YaCAClientModule.setPlayersCommType(
@@ -446,7 +436,7 @@ class YaCAClientModule {
                     CommDeviceMode.SENDER
                 );
             } else if (!this.useWhisper) {
-                if (newValue) {
+                if (state) {
                     YaCAClientModule.setPlayersCommType(target, YacaFilterEnum.PHONE, false, undefined, undefined, CommDeviceMode.TRANSCEIVER, CommDeviceMode.TRANSCEIVER);
                 } else {
                     YaCAClientModule.setPlayersCommType(target, YacaFilterEnum.PHONE, true, undefined, undefined, CommDeviceMode.TRANSCEIVER, CommDeviceMode.TRANSCEIVER);
@@ -582,7 +572,6 @@ class YaCAClientModule {
                 YaCAClientModule.setPlayersCommType(this.getPlayerByID(entityID), YacaFilterEnum.RADIO, false, undefined, undefined, CommDeviceMode.RECEIVER, CommDeviceMode.SENDER);
             }
         });
-        this.instance = true;
     }
 
     /* ======================== Helper Functions ======================== */
@@ -945,7 +934,7 @@ class YaCAClientModule {
             playersToSet.push(phoneCallMember);
         }
 
-        YaCAClientModule.setPlayersCommType(playersToSet, YacaFilterEnum.PHONE_SPEAKER, false, CommDeviceMode.RECEIVER, CommDeviceMode.SENDER);
+        YaCAClientModule.setPlayersCommType(playersToSet, YacaFilterEnum.PHONE_SPEAKER, false);
 
         delete entityData.phoneCallMemberIds;
     }
@@ -959,32 +948,24 @@ class YaCAClientModule {
     }
 }
 
-const yacaclient = new YaCAClientModule();
+const yacaclient = YaCAClientModule.getInstance();
 
 mp.events.add("render", () => {
-    if (!mp.players.local.hascharachter) return;
+    if (!YaCAClientModule.allPlayers.size) return;
     const controls = mp.game.controls;
 	// Cheatcode Key ^
     if (controls.isDisabledControlJustPressed(1, 243)) {
         yacaclient.changeVoiceRange();
     }
-    // CapsLock
-	//controls.disableControlAction(0, 171, true);
-    //if (controls.isDisabledControlJustPressed(0, 171)) {
-    //    yacaclient.radioTalkingStart(true);
-    //}
-    //if (controls.isDisabledControlJustReleased(0, 171)) {
-    //    yacaclient.radioTalkingStart(false);
-    //}
 });
 
 // STRG Left
 mp.keys.bind(0x11, true, () => {
-    if (!mp.players.local.hascharachter) return;
+    if (!YaCAClientModule.allPlayers.size) return;
     yacaclient.radioTalkingStart(true);
 });
 mp.keys.bind(0x11, false, () => {
-    if (!mp.players.local.hascharachter) return;
+    if (!YaCAClientModule.allPlayers.size) return;
     yacaclient.radioTalkingStart(false);
 });
 
