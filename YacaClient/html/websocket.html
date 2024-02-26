@@ -1,0 +1,68 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8" />
+    <title></title>
+</head>
+<body>
+    <script>
+        let pluginAddress = "";
+        let isConnected = false;
+        window.webSocket = null; // Init WS NULL
+        function connect(address) {
+            if (typeof address === "string") {
+                pluginAddress = address
+            }
+            try {
+                window.webSocket = new window.WebSocket(`ws://${pluginAddress}/`);
+            }
+            catch {}
+            webSocket.onmessage = function (evt) { responseData(evt); };
+            webSocket.onopen = function () {
+                isConnected = true;
+                mp.trigger("YACY_Connected");
+            };
+            webSocket.onclose = function () {
+                isConnected = false;
+                mp.trigger("YACA_Disconnected");
+            }
+            webSocket.onerror = function (err) {
+                isConnected = false;
+                mp.trigger("YACA_Disconnected");
+                webSocket.close();
+            };
+        }
+        function responseData(evt) {
+            mp.trigger("handleResponse", evt.data);
+        }
+        function callWebsocket(command) {
+            if (!isConnected || typeof command !== "string")
+                return;
+            webSocket.send(command);
+        }
+        let noPluginActivated = 0;
+
+        const monitorConnectState = function () {
+            if (webSocket) {
+                if (webSocket?.readyState == 1) {
+                    if (webSocket.readyState == 1) {
+                        noPluginActivated = 0;
+                    }
+                    return;
+                }
+                noPluginActivated++;
+                if (noPluginActivated >= 120) {
+                    // Kick Player
+                    if (typeof mp != "undefined") {
+                        mp.trigger("yaca:novoice", 120);
+                    }
+                }
+            }
+        }
+        setInterval(monitorConnectState, 1000);
+
+    </script>
+</body>
+
+</html>
