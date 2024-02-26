@@ -16,6 +16,7 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
         public bool forceMuted { get; set; } = false;
         public string ingameName { get; set; } = "";
         public bool mutedOnPhone { get; set; } = false;
+		public List<int> inCallWith { get; set; } = new List<int>();
     }
     public class radioSettings
     {
@@ -612,7 +613,35 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
             if (Channel < 1 || Channel > this.maxRadioChannels) return;
             voiceClient.radioSettings.currentChannel = Channel;
         }
+		
+       [RemoteEvent("server:yaca:phoneSpeakerEmit")]
+       private void phoneSpeakerEmit(Player sender, int[] enableForTargets, int[] disableForTargets)
+       {
+           List<Player> enableWhisperReceive = new List<Player>();
+           List<Player> disableWhisperReceive = new List<Player>();
+           YacaVoiceClient voiceClient = sender?.YacaVoiceClient();
+           if (voiceClient == null) return;
 
+           foreach (var callTarget in voiceClient.voiceSettings.inCallWith)
+           {
+               var target = NAPI.Pools.GetAllPlayers().ToList().FirstOrDefault(x => x.Id == callTarget);
+               if (target != null)
+               {
+                   if (enableForTargets?.Length > 0) enableWhisperReceive.Add(target);
+                   if (disableForTargets?.Length > 0) disableWhisperReceive.Add(target);
+               }
+           }
+
+           if (enableWhisperReceive.Count > 0)
+           {
+               NAPI.ClientEvent.TriggerClientEventToPlayers(enableWhisperReceive.ToArray(), "client:yaca:playersToPhoneSpeakerEmit", enableForTargets, true);
+           }
+           if (disableWhisperReceive.Count > 0)
+           {
+               NAPI.ClientEvent.TriggerClientEventToPlayers(disableWhisperReceive.ToArray(), "client:yaca:playersToPhoneSpeakerEmit", disableForTargets, false);
+           }
+       }
+	   
         #endregion
 
         #region Phone
@@ -636,7 +665,13 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
             {
                 muteOnPhone(sender, false, true);
                 muteOnPhone(target, false, true);
-            }
+				
+				//sender.YacaVoiceClient()?.voiceSettings.inCallWith.Add(target.Id);
+                //target.YacaVoiceClient()?.voiceSettings.inCallWith.Add(sender.Id);
+            } else {
+                //sender.YacaVoiceClient()?.voiceSettings.inCallWith.RemoveAll( x => x != target.Id);
+                //target.YacaVoiceClient()?.voiceSettings.inCallWith.RemoveAll(x => x != sender.Id);				
+			}
         }
         public static void CallPlayerOldEffect(Player sender, Player target, bool state)
         {
