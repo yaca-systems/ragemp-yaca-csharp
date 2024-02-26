@@ -73,6 +73,10 @@ const translations = {
     "WAIT_GAME_INIT": "",
     "HEARTBEAT": ""
 }
+function distanceTo(OwnPosition, OtherPosition, useZ = false) {
+    return mp.game.gameplay.getDistanceBetweenCoords(OwnPosition.x, OwnPosition.y, OwnPosition.z, OtherPosition.x, OtherPosition.y, OtherPosition.z, useZ)
+   // return Math.sqrt(Math.pow(point.x - p.x, 2) + Math.pow(point.y - p.y, 2))
+}
 let websockbrowser = mp.browsers.new('http://package/YacaClient/html/websocket.html');
 websockbrowser.active = false;
 function callSocketBrowser(arge) {
@@ -102,7 +106,7 @@ function callSocketBrowser(arge) {
                     }
                 }
                 websockbrowser.execute(`${arge[0]}(${input})`);
-            } catch(e) { mp.gui.chat.push("SocketError " + e) }
+            } catch(e) { mp.console.logInfo("SocketError " + e) }
         }
     }
 }
@@ -133,6 +137,9 @@ class YaCAClientModule {
     activeRadioChannel = 1;
     playersWithShortRange = new Map();
     playersInRadioChannel = new Map();
+
+    phoneSpeakerActive = false;
+    currentlyPhoneSpeakerApplied = new Set();
 
     useWhisper = false;
 
@@ -190,7 +197,7 @@ class YaCAClientModule {
             } else {
                 mp.events.callRemote("server:yaca:wsReady", this.firstConnect);
             }
-            mp.gui.chat.push('[Client] YaCA Client loaded');
+            mp.console.logInfo('[Client] YaCA Client loaded');
         });
 
         mp.events.add("client:yaca:disconnect", (remoteId) => {
@@ -443,16 +450,38 @@ class YaCAClientModule {
                 }
             }
         })
+		
+		// This thing is in this example not handelet by Server | Whispermode Only
+        mp.events.add("client:yaca:playersToPhoneSpeakerEmit", (playerIDs, state) => {
+            if (!Array.isArray(playerIDs)) playerIDs = [playerIDs];
+
+            let applyPhoneSpeaker = new Set();
+            let phoneSpeakerRemove = new Set();
+            for (const playerID of playerIDs) {
+                const player = this.getPlayerByID(playerID);
+                if (!player) continue;
+
+                if (state) {
+                    applyPhoneSpeaker.add(player);
+                } else {
+                    phoneSpeakerRemove.add(player);
+                }
+            }
+
+            if (applyPhoneSpeaker.size) YaCAClientModule.setPlayersCommType(Array.from(applyPhoneSpeaker), YacaFilterEnum.PHONE_SPEAKER, true, undefined, undefined, CommDeviceMode.SENDER, CommDeviceMode.RECEIVER);
+            if (phoneSpeakerRemove.size) YaCAClientModule.setPlayersCommType(Array.from(phoneSpeakerRemove), YacaFilterEnum.PHONE_SPEAKER, false, undefined, undefined, CommDeviceMode.SENDER, CommDeviceMode.RECEIVER);
+        });
+		
         mp.events.add("handleResponse", (payload) => {
             if (!payload) return;
 
             try {
                 payload = JSON.parse(payload);
             } catch (e) {
-                mp.gui.chat.push("[YaCA-Websocket]: Error while parsing message: "+ e);
+                mp.console.logInfo("[YaCA-Websocket]: Error while parsing message: "+ e);
                 return;
             }
-            mp.gui.chat.push(payload);
+            mp.console.logInfo(payload);
             if (payload.code === "OK") {
                 if (payload.requestType === "JOIN") {
                     mp.events.callRemote("server:yaca:addPlayer", parseInt(payload.message));
@@ -476,9 +505,9 @@ class YaCAClientModule {
             }
 
             const message = translations[payload.code] ?? "Unknown error!";
-            if (typeof translations[payload.code] == "undefined") mp.gui.chat.push(`[YaCA-Websocket]: Unknown error code: ${payload.code}`);
+            if (typeof translations[payload.code] == "undefined") mp.console.logInfo(`[YaCA-Websocket]: Unknown error code: ${payload.code}`);
             if (message.length < 1) return;
-            mp.gui.chat.push(`Voice: ${message}`);
+            mp.console.logInfo(`Voice: ${message}`);
         });
 
         mp.events.addDataHandler('yaca:megaphoneactive', (entity, newValue, oldValue) => {
@@ -493,6 +522,8 @@ class YaCAClientModule {
                 isOwnPlayer ? CommDeviceMode.RECEIVER : CommDeviceMode.SENDER);
         });
         mp.events.addDataHandler('yaca:phoneSpeaker', (entity, newValue, oldValue) => {
+			if (entity.remoteId == this.localPlayer.remoteId) this.phoneSpeakerActive = !!newValue;
+			
             if (!newValue) {
                 this.removePhoneSpeakerFromEntity(entity);
             } else {
@@ -609,13 +640,13 @@ class YaCAClientModule {
     isPluginInitialized() {
         const inited = !!this.getPlayerByID(this.localPlayer.remoteId);
 
-        if (!inited) mp.gui.chat.push(translations.plugin_not_initializiaed);
+        if (!inited) mp.console.logInfo(translations.plugin_not_initializiaed);
 
         return inited;
     }
 
     sendWebsocket(msg) {
-        if (!websockbrowser) return mp.gui.chat.push("[Voice-Websocket]: No websocket created");
+        if (!websockbrowser) return mp.console.logInfo("[Voice-Websocket]: No websocket created");
         callSocketBrowser(["callWebsocket",JSON.stringify(msg)]);
     }
 
@@ -671,7 +702,7 @@ class YaCAClientModule {
 
     isCommTypeValid(type) {
         const valid = YacaFilterEnum[type];
-        if (!valid) mp.gui.chat.push(`[YaCA-Websocket]: Invalid commtype: ${type}`);
+        if (!valid) mp.console.logInfo(`[YaCA-Websocket]: Invalid commtype: ${type}`);
 
         return !!valid;
     }
@@ -755,10 +786,13 @@ class YaCAClientModule {
         }
     }
     calcPlayers() {
-        const players = [];
+        const players = new Map();
         const allPlayers = mp.players.streamed;
         const localPos = this.localPlayer.position;
         const currentRoom = mp.game.interior.getRoomKeyFromEntity(this.localPlayer.handle);
+        const inVehicle = this.localPlayer.vehicle;
+        const playersToPhoneSpeaker = new Set();
+        const playersOnPhoneSpeaker = new Set();
 
         const localData = this.getPlayerByID(this.localPlayer.remoteId);
         if (!localData) return;
@@ -774,48 +808,68 @@ class YaCAClientModule {
                 muffleIntensity = 10; // 10 is the maximum intensity
             }
 
-            players.push({
-                client_id: voiceSetting.clientId,
-                position: player.position,
-                direction: player.getForwardVector(),
-                range: voiceSetting.range,
-                is_underwater: player.isSwimmingUnderWater(),
-                muffle_intensity: muffleIntensity,
-                is_muted: voiceSetting.forceMuted
-            });
+            if (!playersOnPhoneSpeaker.has(voiceSetting.remoteId)) {
+                players.set(voiceSetting.remoteId, {
+                    client_id: voiceSetting.clientId,
+                    position: player.position,
+                    direction: player.getForwardVector(),
+                    range: voiceSetting.range,
+                    is_underwater: player.isSwimmingUnderWater(),
+                    muffle_intensity: muffleIntensity,
+                    is_muted: voiceSetting.forceMuted
+                });
+            }
+
+            // Phone speaker handling - user who enabled it.
+            const distance = distanceTo(player.position, localPos);
+            if (this.useWhisper && this.phoneSpeakerActive && this.inCall && distance <= settings.maxPhoneSpeakerRange) {
+                playersToPhoneSpeaker.add(player.remoteId);
+            }
 
             // Phone speaker handling.
-            if (voiceSetting.phoneCallMemberIds) {
-                let applyPhoneSpeaker = new Set();
-                let phoneSpeakerRemove = new Set();
+            if (voiceSetting.phoneCallMemberIds && distance <= settings.maxPhoneSpeakerRange) {
                 for (const phoneCallMemberId of voiceSetting.phoneCallMemberIds) {
                     let phoneCallMember = this.getPlayerByID(phoneCallMemberId);
-                    if (!phoneCallMember) continue;
+                    if (!phoneCallMember || phoneCallMember.mutedOnPhone || phoneCallMember.forceMuted) continue;
 
-                    if (phoneCallMember.mutedOnPhone
-                        || phoneCallMember.forceMuted
-                        || this.localPlayer.position.distanceTo(player.position) > settings.maxPhoneSpeakerRange
-                    ) {
-                        if (!applyPhoneSpeaker.has(phoneCallMember)) phoneSpeakerRemove.add(phoneCallMember);
-                        continue;
-                    }
-
-                    players.push({
+                    players.delete(phoneCallMemberId);
+                    players.set(phoneCallMemberId, {
                         client_id: phoneCallMember.clientId,
                         position: player.position,
                         direction: player.getForwardVector(),
                         range: settings.maxPhoneSpeakerRange,
-                        is_underwater: player.isSwimmingUnderWater()
+                        is_underwater: player.isSwimmingUnderWater(),
+                        muffle_intensity: muffleIntensity,
+                        is_muted: false
                     });
 
-                    if (phoneSpeakerRemove.has(phoneCallMember)) phoneSpeakerRemove.delete(phoneCallMember)
-                    applyPhoneSpeaker.add(phoneCallMember)
-                }
+                    playersOnPhoneSpeaker.add(phoneCallMemberId);
 
-                if (applyPhoneSpeaker.size) YaCAClientModule.setPlayersCommType(Array.from(applyPhoneSpeaker), YacaFilterEnum.PHONE_SPEAKER, true);
-                if (phoneSpeakerRemove.size) YaCAClientModule.setPlayersCommType(Array.from(phoneSpeakerRemove), YacaFilterEnum.PHONE_SPEAKER, false);
+                    YaCAClientModule.setPlayersCommType(phoneCallMember, YacaFilterEnum.PHONE_SPEAKER, true, undefined, settings.maxPhoneSpeakerRange, CommDeviceMode.RECEIVER, CommDeviceMode.SENDER);
+
+                    this.currentlyPhoneSpeakerApplied.add(phoneCallMemberId);
+                }
+            }
+
+        }
+
+        if (this.useWhisper && ((this.phoneSpeakerActive && this.inCall) || ((!this.phoneSpeakerActive || !this.inCall) && this.currentlySendingPhoneSpeakerSender.size))) {
+            const playersToNotReceivePhoneSpeaker = [...this.currentlySendingPhoneSpeakerSender].filter(playerId => !playersToPhoneSpeaker.has(playerId));
+            const playersNeedsReceivePhoneSpeaker = [...playersToPhoneSpeaker].filter(playerId => !this.currentlySendingPhoneSpeakerSender.has(playerId));
+
+            this.currentlySendingPhoneSpeakerSender = new Set(playersToPhoneSpeaker);
+
+            if (playersToNotReceivePhoneSpeaker.length || playersNeedsReceivePhoneSpeaker.length) {
+                mp.events.callRemote("server:yaca:phoneSpeakerEmit", playersNeedsReceivePhoneSpeaker, playersToNotReceivePhoneSpeaker);
             }
         }
+
+        this.currentlyPhoneSpeakerApplied.forEach((playerId) => {
+            if (!playersOnPhoneSpeaker.has(playerId)) {
+                this.currentlyPhoneSpeakerApplied.delete(playerId);
+                YaCAClientModule.setPlayersCommType(this.getPlayerByID(playerId), YacaFilterEnum.PHONE_SPEAKER, false, undefined, settings.maxPhoneSpeakerRange, CommDeviceMode.RECEIVER, CommDeviceMode.SENDER);
+            }
+        });
         /** Send collected data to ts-plugin. */
         this.sendWebsocket({
             base: { "request_type": "INGAME" },
@@ -825,7 +879,7 @@ class YaCAClientModule {
                 player_range: localData.range,
                 player_is_underwater: this.localPlayer.isSwimmingUnderWater(),
                 player_is_muted: localData.forceMuted,
-                players_list: players
+                players_list: Array.from(players.values())
             }
         });
     }
@@ -880,7 +934,7 @@ class YaCAClientModule {
                 this.radioFrequenceSetted = false;
             }
         } catch (e) {
-            mp.gui.chat.push(e);
+            mp.console.logInfo(e);
         }
 
     }
@@ -970,7 +1024,7 @@ mp.keys.bind(0x11, false, () => {
 });
 
 mp.events.add("yaca:novoice", (count) => {
-    mp.gui.chat.push("No Voice Plugin: " + count)
+    mp.console.logInfo("No Voice Plugin: " + count)
 	// Call Server Kick player or whatever you want
 	mp.events.callRemote("server:yaca:noVoicePlugin")
 })
