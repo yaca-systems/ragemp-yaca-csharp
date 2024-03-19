@@ -3,9 +3,12 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
+using System.Runtime.InteropServices;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
-namespace RageServer.Server.Handler.VoiceService.YacaVoice
+namespace YacaVoice
 {
     #region Settings Models
     public class voiceSettings
@@ -16,14 +19,14 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
         public bool forceMuted { get; set; } = false;
         public string ingameName { get; set; } = "";
         public bool mutedOnPhone { get; set; } = false;
-		public List<int> inCallWith { get; set; } = new List<int>();
+        public List<int> inCallWith { get; set; } = new List<int>();
     }
     public class radioSettings
     {
         public bool activated { get; set; } = false;
         public int currentChannel { get; set; } = 1;
         public bool hasLong { get; set; } = false;
-        public Dictionary<int,string> frequencies { get; set; } = new Dictionary<int, string>();
+        public Dictionary<int, string> frequencies { get; set; } = new Dictionary<int, string>();
     }
     public class voicePlugin
     {
@@ -105,11 +108,11 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
         #region Propertys
         public static YacaVoiceServer Instance { get; private set; }
         public int maxRadioChannels { get; private set; } = 9;
-        public string UNIQUE_SERVER_ID { get; private set; } = "abcdefg ServerUniqueIdentifier";
+        public string UNIQUE_SERVER_ID { get; private set; } = "";
         public int CHANNEL_ID { get; private set; } = 2; // Ingame TS Channel ID
         public string CHANNEL_PASSWORD { get; private set; } = "";
         public int DEFAULT_CHANNEL_ID { get; private set; } = 1; // AFK / Eingangshalle
-        public bool USE_WHISPER { get; private set; } = false;
+        public bool USE_WHISPER { get; private set; } = false; // Und das wird auch immer so bleiben
 
         public YacaVoiceClient[] VoiceClients => _voiceClients.Values.ToArray();
         private Dictionary<Player, YacaVoiceClient> _voiceClients = new Dictionary<Player, YacaVoiceClient>();
@@ -128,7 +131,7 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
 
         #region Basics
         public static List<string> VoiceNames = new List<string>();
-        
+
         [ServerEvent(Event.ResourceStart)]
         public void OnResourceStart()
         {
@@ -137,7 +140,7 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
             CHANNEL_PASSWORD = NAPI.Resource.GetSetting<string>(this, "IngameChannelPassword");
             DEFAULT_CHANNEL_ID = NAPI.Resource.GetSetting<string>(this, "DefaultChannel").GetNumbersInt();
         }
-        
+
         public void ConnectToVoice(Player client)
         {
             try
@@ -157,7 +160,7 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                             if (this._voiceClients.TryGetValue(client, out voiceClient))
                                 this._voiceClients.Remove(client);
                             voiceClient = new YacaVoiceClient(client, client.getVoiceName(), 3);
-							voiceClient.voiceSettings.voiceFirstConnect = true;
+                            voiceClient.voiceSettings.voiceFirstConnect = true;
                             this._voiceClients.Add(client, voiceClient);
                         }
                         var data = new Dictionary<string, dynamic>();
@@ -169,15 +172,28 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                         data["useWhisper"] = USE_WHISPER;
                         client.TriggerEvent("client:yaca:init", data);
                     };
-                    await Utils.RunSafeFromAsyncContext(action);
+                    await RunSafeFromAsyncContext(action);
                 });
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.WriteLine("VoiceError: " + ex.ToString());
+            }
+        }
+
+        // Testing
+        [ServerEvent(Event.PlayerConnected)]
+        private void PlayerSpawnforInitProzess(Player sender)
+        {
+            sender.NoteOverMap("Spawned");
+            ConnectToVoice(sender);
         }
 
         [ServerEvent(Event.PlayerDisconnected)]
         public void OnPlayerDisconnected(Player client, DisconnectionType disconnectionType = DisconnectionType.Left, string reason = "")
         {
+            client.TriggerEvent("exitVoice");
+
             try
             {
                 Task.Run(async () =>
@@ -196,7 +212,7 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                         }
 
                         var allRadios = this.RadioChannels.ToList();
-                        
+
                         foreach (var item in allRadios)
                         {
                             if (item.IsMember(voiceClient))
@@ -214,16 +230,15 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                             if (VoiceNames.Contains(voiceClient.voiceSettings.ingameName))
                                 VoiceNames.Remove(voiceClient.voiceSettings.ingameName);
                         }
-                        
+
                         NAPI.ClientEvent.TriggerClientEventForAll("client:yaca:disconnect", remoteid);
                     };
-                    await Utils.RunSafeFromAsyncContext(action);
+                    await RunSafeFromAsyncContext(action);
                 });
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
-
             }
         }
 
@@ -238,7 +253,7 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                 voiceClient.TriggerEvent("client:yaca:setMaxVoiceRange", 20);
             }
             voiceClient.voiceSettings.voiceRange = range;
-            
+
             NAPI.ClientEvent.TriggerClientEventForAll("client:yaca:changeVoiceRange", sender.Id, voiceClient.voiceSettings.voiceRange);
             if (voiceClient.voicePlugin != null)
             {
@@ -253,11 +268,12 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
         {
             YacaVoiceClient voiceClient = sender.YacaVoiceClient();
             if (voiceClient == null) return;
-            
+
             if (state)
             {
                 voiceClient.voiceSettings.voiceRange = 0;
-                if (voiceClient.voicePlugin != null){
+                if (voiceClient.voicePlugin != null)
+                {
                     voiceClient.voicePlugin.range = 0;
                 }
                 sender.SetSharedData("VOICE_RANGE", voiceClient.voiceSettings.voiceRange);
@@ -275,6 +291,7 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                     voiceClient.voicePlugin.range = range;
                 }
                 sender.SetSharedData("VOICE_RANGE", range);
+                //sender.SetData("VOICE_LAST_RANGE", range);
                 NAPI.ClientEvent.TriggerClientEventForAll("client:yaca:changeVoiceRange", sender.Id, voiceClient.voiceSettings.voiceRange);
             }
         }
@@ -283,6 +300,8 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
         private void YacaPlayerLipSync(Player sender, bool state)
         {
             sender.SetSharedData("yaca:lipsync", state);
+            //Console.WriteLine("Talking? " + state);
+            //NAPI.ClientEvent.TriggerClientEventInRange(sender.Position, 200, "lipsync:yaca:sync", sender, state);
         }
 
         [RemoteEvent("server:yaca:addPlayer")]
@@ -290,6 +309,8 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
         {
             YacaVoiceClient voiceClient = sender?.YacaVoiceClient();
             if (voiceClient == null) return;
+            //if (!this._voiceClients.TryGetValue(sender, out voiceClient))
+            //    return;
 
             voiceClient.voiceSettings.voiceFirstConnect = true;
             sender.SetData("VOICE_ID", TeamspeakClientId);
@@ -318,13 +339,12 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
             }
             if (allPlayersData.Count > 100)
             {
-				// Split list | is string to long is cut
                 var splitlist = allPlayersData.ChunkBy(100);
                 foreach (var list in splitlist)
                 {
                     sender.TriggerEvent("client:yaca:addPlayers", JsonConvert.SerializeObject(list.ToArray()));
                 }
-            } 
+            }
             else
             {
                 sender.TriggerEvent("client:yaca:addPlayers", JsonConvert.SerializeObject(allPlayersData.ToArray()));
@@ -345,10 +365,11 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
         [RemoteEvent("server:yaca:useMegaphone")]
         private void playerUseMegaphone(Player sender, bool state)
         {
-            // TODO: Faction Binding | wer darf es nutze!?
+            // ToDo: Faction Binding
             if (sender.Vehicle == null) return;
-            
+
             if (sender.VehicleSeat != 0 && sender.VehicleSeat != 1) return;
+            sender.NoteOverMap("Seat: " + sender.VehicleSeat);
             changeMegaPhoneState(sender, state);
         }
 
@@ -364,38 +385,41 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                 sender.SetSharedData("yaca:megaphoneactive", 30);
             }
         }
-
+        private static readonly List<ulong> AllreadyAnnouceNoVoice = new List<ulong>();
         [RemoteEvent("server:yaca:noVoicePlugin")]
         private void playerNoYacyVoicePlugin(Player sender)
         {
             sender.NoteOverMap("~r~Dein YACA Voiceplugin ist nicht aktiviert!");
-			NAPI.Task.Run(() =>
-			{
-			    sender.Kick();
-			}, 5000);
-            
+            NAPI.Task.Run(() =>
+            {
+                sender.Kick();
+            }, 5000);
         }
 
         [RemoteEvent("server:yaca:wsReady")]
         private void playerReconnect(Player sender, bool isFirstConnect)
         {
             if (!sender.IsLoggedIn()) return;
+            //sender.NoteOverMap("Du bist eingeloggt!");
             YacaVoiceClient voiceClient = sender.YacaVoiceClient();
             if (voiceClient == null)
             {
+                sender.NoteOverMap("Hat nicht geklappt, bitte Game neu Starten!");
                 return;
             }
-
+            //sender.NoteOverMap("Voice Client ist nicht null! Setting Say: " + voiceClient.voiceSettings.voiceFirstConnect);
             if (!voiceClient.voiceSettings.voiceFirstConnect) return;
-
+            //sender.NoteOverMap("Voice Client is alredy in System");
             if (!isFirstConnect)
             {
+                //sender.NoteOverMap("Refresh old Voice Settings");
                 var name = sender.setVoiceName();
                 if (name == null) return;
                 if (VoiceNames.Contains(voiceClient.voiceSettings.ingameName))
                     VoiceNames.Remove(voiceClient.voiceSettings.ingameName);
                 voiceClient.voiceSettings.ingameName = name;
             }
+            sender.NoteOverMap("~g~Try Reconnect to Voice");
             ConnectToVoice(sender);
         }
 
@@ -428,7 +452,6 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
 
             if (!voiceClient.radioSettings.activated)
             {
-                sender.SendErrorMessage("Dein Funkgerät ist aus");
                 return;
             }
 
@@ -508,6 +531,8 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                 }
             }
             catch { }
+
+            //voiceClient.radioSettings.frequencies[Channel] = "0";
         }
 
         [RemoteEvent("server:yaca:muteRadioChannel")]
@@ -573,7 +598,7 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                 {
                     if (!targets.Contains(target))
                         targets.Add(target);
-                    if(!radioInfos.ContainsKey(target.Id))
+                    if (!radioInfos.ContainsKey(target.Id))
                         radioInfos.Add(target.Id, new RadioInfos { shortRange = shortRange });
                     if (!targetsToSender.Contains(target.Id))
                         targetsToSender.Add(target.Id);
@@ -590,17 +615,18 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
             sender.SetSharedData("isTakingRadioNow", state);
             if (state)
             {
-                AnimationHandler.PlayerAnimation(sender, "radioTalk");
-            } 
+                // Animation Talk Radio here
+            }
             else
             {
-                AnimationHandler.PlayerAnimation(sender, "lul");
+                // Animation Idle here or Stop Animation
             }
         }
 
         [RemoteEvent("yaca:synclips:server")]
         public void SyncLips(Player sender, bool state)
         {
+            //Console.WriteLine("Am Labern: " + sender.Character().FullName + " ts: " + state);
             NAPI.ClientEvent.TriggerClientEventInRange(sender.Position, 50, "yaca:synclips", sender, state);
         }
 
@@ -613,39 +639,79 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
             if (Channel < 1 || Channel > this.maxRadioChannels) return;
             voiceClient.radioSettings.currentChannel = Channel;
         }
-		
-       [RemoteEvent("server:yaca:phoneSpeakerEmit")]
-       private void phoneSpeakerEmit(Player sender, int[] enableForTargets, int[] disableForTargets)
-       {
-           List<Player> enableWhisperReceive = new List<Player>();
-           List<Player> disableWhisperReceive = new List<Player>();
-           YacaVoiceClient voiceClient = sender?.YacaVoiceClient();
-           if (voiceClient == null) return;
 
-           foreach (var callTarget in voiceClient.voiceSettings.inCallWith)
-           {
-               var target = NAPI.Pools.GetAllPlayers().ToList().FirstOrDefault(x => x.Id == callTarget);
-               if (target != null)
-               {
-                   if (enableForTargets?.Length > 0) enableWhisperReceive.Add(target);
-                   if (disableForTargets?.Length > 0) disableWhisperReceive.Add(target);
-               }
-           }
+        [RemoteEvent("server:yaca:phoneSpeakerEmit")]
+        private void phoneSpeakerEmit(Player sender, int[] enableForTargets, int[] disableForTargets)
+        {
+            List<Player> enableWhisperReceive = new List<Player>();
+            List<Player> disableWhisperReceive = new List<Player>();
+            YacaVoiceClient voiceClient = sender?.YacaVoiceClient();
+            if (voiceClient == null) return;
 
-           if (enableWhisperReceive.Count > 0)
-           {
-               NAPI.ClientEvent.TriggerClientEventToPlayers(enableWhisperReceive.ToArray(), "client:yaca:playersToPhoneSpeakerEmit", enableForTargets, true);
-           }
-           if (disableWhisperReceive.Count > 0)
-           {
-               NAPI.ClientEvent.TriggerClientEventToPlayers(disableWhisperReceive.ToArray(), "client:yaca:playersToPhoneSpeakerEmit", disableForTargets, false);
-           }
-       }
-	   
+            foreach (var callTarget in voiceClient.voiceSettings.inCallWith)
+            {
+                var target = NAPI.Pools.GetAllPlayers().ToList().FirstOrDefault(x => x.Id == callTarget);
+                if (target != null)
+                {
+                    if (enableForTargets?.Length > 0) enableWhisperReceive.Add(target);
+                    if (disableForTargets?.Length > 0) disableWhisperReceive.Add(target);
+                }
+            }
+
+            if (enableWhisperReceive.Count > 0)
+            {
+                NAPI.ClientEvent.TriggerClientEventToPlayers(enableWhisperReceive.ToArray(), "client:yaca:playersToPhoneSpeakerEmit", enableForTargets, true);
+            }
+            if (disableWhisperReceive.Count > 0)
+            {
+                NAPI.ClientEvent.TriggerClientEventToPlayers(disableWhisperReceive.ToArray(), "client:yaca:playersToPhoneSpeakerEmit", disableForTargets, false);
+            }
+        }
+
+
+        [RemoteEvent("server:yaca:newradiovolume")]
+        private void radiVolumeChanged(Player sender, string Volume)
+        {
+            if (sender == null) return;
+            sender.NoteOverMap("~b~Funklautstärke: ~g~" + Volume.ConvertToDouble());
+            sender.SetRadioVolume(Volume.ConvertToDouble());
+        }
+
+        [RemoteEvent("server:yaca:newStereoMode")]
+        private void radiStereoModeChanged(Player sender, string Mode)
+        {
+            if (sender == null) return;
+            string StereoType = "";
+            switch (Mode)
+            {
+                case "MONO_LEFT":
+                    StereoType = "Links";
+                    break;
+                case "MONO_RIGHT":
+                    StereoType = "Rechts";
+                    break;
+                case "STEREO":
+                    StereoType = "Stereo";
+                    break;
+            }
+            sender.NoteOverMap("~b~Stereo Mode: ~g~" + StereoType);
+        }
+
+        public static void radioVolumeUpDown(Player sender, bool higherorlower)
+        {
+            if (sender == null || !sender.IsLoggedIn()) return;
+            sender.TriggerEvent("client:yaca:changeRadioChannelVolume", higherorlower);
+        }
+        public static void radioswitchSteroMode(Player sender)
+        {
+            if (sender == null || !sender.IsLoggedIn()) return;
+            sender.TriggerEvent("client:yaca:changeRadioChannelStereo");
+        }
+
         #endregion
 
         #region Phone
-        public static readonly Dictionary<int,int> SpeakterDict = new Dictionary<int, int>();
+        public static readonly Dictionary<int, int> SpeakterDict = new Dictionary<int, int>();
         public static void CallPlayer(Player sender, Player target, bool state)
         {
             if (sender == null || target == null) return;
@@ -659,19 +725,23 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
             {
                 SpeakterDict.Remove(target.Id);
             }
-            SpeakterDict.Add(sender.Id,target.Id);
-            SpeakterDict.Add(target.Id,sender.Id);
             if (!state)
             {
                 muteOnPhone(sender, false, true);
                 muteOnPhone(target, false, true);
-				
-				//sender.YacaVoiceClient()?.voiceSettings.inCallWith.Add(target.Id);
+
+                //sender.YacaVoiceClient()?.voiceSettings.inCallWith.Add(target.Id);
                 //target.YacaVoiceClient()?.voiceSettings.inCallWith.Add(sender.Id);
-            } else {
+            }
+            else
+            {
+                SpeakterDict.Add(sender.Id, target.Id);
+                SpeakterDict.Add(target.Id, sender.Id);
+
                 //sender.YacaVoiceClient()?.voiceSettings.inCallWith.RemoveAll( x => x != target.Id);
-                //target.YacaVoiceClient()?.voiceSettings.inCallWith.RemoveAll(x => x != sender.Id);				
-			}
+                //target.YacaVoiceClient()?.voiceSettings.inCallWith.RemoveAll(x => x != sender.Id);
+
+            }
         }
         public static void CallPlayerOldEffect(Player sender, Player target, bool state)
         {
@@ -686,12 +756,16 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
             {
                 SpeakterDict.Remove(target.Id);
             }
-            SpeakterDict.Add(sender.Id, target.Id);
-            SpeakterDict.Add(target.Id, sender.Id);
+
             if (!state)
             {
                 muteOnPhone(sender, false, true);
                 muteOnPhone(target, false, true);
+            }
+            else
+            {
+                SpeakterDict.Add(sender.Id, target.Id);
+                SpeakterDict.Add(target.Id, sender.Id);
             }
         }
 
@@ -705,9 +779,10 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
             {
                 sender.ResetSharedData("yaca:phoneSpeaker");
             }
-
+            //sender.NoteOverMap("~g~ToggleMute: " + state);
             voiceClient.voiceSettings.mutedOnPhone = state;
-            voiceClient.TriggerEvent("client:yaca:phoneMute", sender.Id, state, onCallStop);
+            NAPI.ClientEvent.TriggerClientEventForAll("client:yaca:phoneMute", sender.Id, state, onCallStop);
+            //voiceClient.TriggerEvent("client:yaca:phoneMute", sender.Id, state, onCallStop);
         }
 
         [RemoteEvent("toggleSpeaker")]
@@ -721,14 +796,12 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                 {
                     List<int> phoneNumbers = new List<int> { sender.Id, SpeakterDict[sender.Id] };
                     sender.SetSharedData("yaca:phoneSpeaker", JsonConvert.SerializeObject(phoneNumbers));
+                    sender.NoteOverMap("~g~Set Phone Speaker " + sender.Id + " > " + SpeakterDict[sender.Id]);
                 }
-                else
-                {
-                    sender.ResetSharedData("yaca:phoneSpeaker");
-                }
-            } 
+            }
             else
             {
+                sender.NoteOverMap("~r~Reset Phone Speaker");
                 sender.ResetSharedData("yaca:phoneSpeaker");
             }
         }
@@ -752,6 +825,7 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                 return false;
             }
         }
+
         public static async Task RunSafeFromAsyncContext(Action action)
         {
             if (System.Threading.Thread.CurrentThread.ManagedThreadId == NAPI.MainThreadId)
@@ -764,6 +838,7 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                 await NAPI.Task.WaitForMainThread();
             }
         }
+
         #endregion
     }
 
@@ -783,40 +858,54 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
                 return null;
             }
         }
-		
-		public static string setVoiceName(this Player client)
+        public static int GetNumbersInt(this string input)
         {
-            if (client.HasData("VOICE_NAME"))
+            try
             {
-				if (YacaVoiceServer.VoiceNames.Contains(client.GetData<string>("VOICE_NAME")))
+                int result;
+                if (int.TryParse(input, out result))
                 {
-                    YacaVoiceServer.VoiceNames.Remove(client.GetData<string>("VOICE_NAME"));
+                    if (new string(input.Where(c => char.IsDigit(c)).ToArray()) == String.Empty)
+                    {
+
+                        return 0;
+                    }
+                    if (input.Contains("-"))
+                    {
+                        return Convert.ToInt32(input);
+                    }
+                    return Convert.ToInt32(new string(input.Where(c => char.IsDigit(c)).ToArray()));
                 }
-                client.ResetData("VOICE_NAME");
+                return 0;
             }
-            string randomString;
-			while (true)
-			{
-				randomString = RandomString(10).ToUpper();
-				if (!YacaVoiceServer.VoiceNames.Contains(randomString))
-				{
-					break;
-				}
-			}
-            client.SetData("VOICE_NAME", randomString);
-            return randomString;
-        }
-		
-		public static string getVoiceName(this Player client)
-        {
-            if (client.HasData("VOICE_NAME"))
+            catch
             {
-                return client.GetData<dynamic>("VOICE_NAME");
+                return 0;
             }
-            return null;
         }
-		
-		private static Random random = new Random();
+        public static double ConvertToDouble(this string betrag)
+        {
+            if (string.IsNullOrEmpty(betrag)) return 0;
+            try
+            {
+                double _betrag = 0;
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                {
+                    _betrag = Convert.ToDouble(betrag.Replace(",", "."));
+                }
+                else
+                {
+                    _betrag = Convert.ToDouble(betrag.Replace(".", ","));
+                }
+                var resultC = Math.Round(_betrag, 2, MidpointRounding.AwayFromZero);
+                return resultC;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+        private static Random random = new Random();
         public static string RandomString(int length)
         {
             const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -827,14 +916,47 @@ namespace RageServer.Server.Handler.VoiceService.YacaVoice
         {
             // Send Message to Client
         }
-		public static void SendErrorMessage(this Player Player, string text, int time = 7500)
-		{
-			 // Send Error Message to Client
-		}
+        public static void SendErrorMessage(this Player Player, string text, int time = 7500)
+        {
+            // Send Error Message to Client
+        }
+        public static void SetRadioVolume(this Player sender, double Volume)
+        {
+            if (sender == null) return;
+            sender.SetSharedData("RadioVolume", Volume);
+        }
         public static bool IsLoggedIn(this Player client)
         {
             if (client == null) return false;
-            return client.HasData("isLoggedIn");
+            // here your Login Check
+            return true;
+        }
+        public static string getVoiceName(this Player client)
+        {
+            if (client.HasData("VOICE_NAME"))
+            {
+                return client.GetData<dynamic>("VOICE_NAME");
+            }
+            return null;
+        }
+
+        public static string setVoiceName(this Player client)
+        {
+            if (client.HasData("VOICE_NAME"))
+            {
+                client.ResetData("VOICE_NAME");
+            }
+            string randomString;
+            while (true)
+            {
+                randomString = RandomString(10).ToUpper();
+                if (!YacaVoiceServer.VoiceNames.Contains(randomString))
+                {
+                    break;
+                }
+            }
+            client.SetData("VOICE_NAME", randomString);
+            return randomString;
         }
     }
     public static class ListHelper
