@@ -1016,8 +1016,6 @@ mp.events.add("render", () => {
         yacaclient.changeVoiceRange();
     }
 });
-mp.game.graphics.removeParticleFxInRange(0, 0, 0, 16000);
-
 
 // STRG Left
 mp.keys.bind(0x11, true, () => {
