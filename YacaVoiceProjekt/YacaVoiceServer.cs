@@ -112,7 +112,7 @@ namespace YacaVoice
         public int CHANNEL_ID { get; private set; } = 2; // Ingame TS Channel ID
         public string CHANNEL_PASSWORD { get; private set; } = "";
         public int DEFAULT_CHANNEL_ID { get; private set; } = 1; // AFK / Eingangshalle
-        public bool USE_WHISPER { get; private set; } = false; // Und das wird auch immer so bleiben
+        public bool USE_WHISPER { get; private set; } = false;
 
         public YacaVoiceClient[] VoiceClients => _voiceClients.Values.ToArray();
         private Dictionary<Player, YacaVoiceClient> _voiceClients = new Dictionary<Player, YacaVoiceClient>();
@@ -181,19 +181,9 @@ namespace YacaVoice
             }
         }
 
-        // Testing
-        [ServerEvent(Event.PlayerConnected)]
-        private void PlayerSpawnforInitProzess(Player sender)
-        {
-            sender.NoteOverMap("Spawned");
-            ConnectToVoice(sender);
-        }
-
         [ServerEvent(Event.PlayerDisconnected)]
         public void OnPlayerDisconnected(Player client, DisconnectionType disconnectionType = DisconnectionType.Left, string reason = "")
         {
-            client.TriggerEvent("exitVoice");
-
             try
             {
                 Task.Run(async () =>
@@ -291,7 +281,6 @@ namespace YacaVoice
                     voiceClient.voicePlugin.range = range;
                 }
                 sender.SetSharedData("VOICE_RANGE", range);
-                //sender.SetData("VOICE_LAST_RANGE", range);
                 NAPI.ClientEvent.TriggerClientEventForAll("client:yaca:changeVoiceRange", sender.Id, voiceClient.voiceSettings.voiceRange);
             }
         }
@@ -300,8 +289,6 @@ namespace YacaVoice
         private void YacaPlayerLipSync(Player sender, bool state)
         {
             sender.SetSharedData("yaca:lipsync", state);
-            //Console.WriteLine("Talking? " + state);
-            //NAPI.ClientEvent.TriggerClientEventInRange(sender.Position, 200, "lipsync:yaca:sync", sender, state);
         }
 
         [RemoteEvent("server:yaca:addPlayer")]
@@ -309,8 +296,6 @@ namespace YacaVoice
         {
             YacaVoiceClient voiceClient = sender?.YacaVoiceClient();
             if (voiceClient == null) return;
-            //if (!this._voiceClients.TryGetValue(sender, out voiceClient))
-            //    return;
 
             voiceClient.voiceSettings.voiceFirstConnect = true;
             sender.SetData("VOICE_ID", TeamspeakClientId);
@@ -369,7 +354,6 @@ namespace YacaVoice
             if (sender.Vehicle == null) return;
 
             if (sender.VehicleSeat != 0 && sender.VehicleSeat != 1) return;
-            sender.NoteOverMap("Seat: " + sender.VehicleSeat);
             changeMegaPhoneState(sender, state);
         }
 
@@ -400,19 +384,17 @@ namespace YacaVoice
         private void playerReconnect(Player sender, bool isFirstConnect)
         {
             if (!sender.IsLoggedIn()) return;
-            //sender.NoteOverMap("Du bist eingeloggt!");
             YacaVoiceClient voiceClient = sender.YacaVoiceClient();
             if (voiceClient == null)
             {
                 sender.NoteOverMap("Hat nicht geklappt, bitte Game neu Starten!");
                 return;
             }
-            //sender.NoteOverMap("Voice Client ist nicht null! Setting Say: " + voiceClient.voiceSettings.voiceFirstConnect);
+
             if (!voiceClient.voiceSettings.voiceFirstConnect) return;
-            //sender.NoteOverMap("Voice Client is alredy in System");
+
             if (!isFirstConnect)
             {
-                //sender.NoteOverMap("Refresh old Voice Settings");
                 var name = sender.setVoiceName();
                 if (name == null) return;
                 if (VoiceNames.Contains(voiceClient.voiceSettings.ingameName))
@@ -531,8 +513,6 @@ namespace YacaVoice
                 }
             }
             catch { }
-
-            //voiceClient.radioSettings.frequencies[Channel] = "0";
         }
 
         [RemoteEvent("server:yaca:muteRadioChannel")]
@@ -626,7 +606,6 @@ namespace YacaVoice
         [RemoteEvent("yaca:synclips:server")]
         public void SyncLips(Player sender, bool state)
         {
-            //Console.WriteLine("Am Labern: " + sender.Character().FullName + " ts: " + state);
             NAPI.ClientEvent.TriggerClientEventInRange(sender.Position, 50, "yaca:synclips", sender, state);
         }
 
@@ -729,18 +708,11 @@ namespace YacaVoice
             {
                 muteOnPhone(sender, false, true);
                 muteOnPhone(target, false, true);
-
-                //sender.YacaVoiceClient()?.voiceSettings.inCallWith.Add(target.Id);
-                //target.YacaVoiceClient()?.voiceSettings.inCallWith.Add(sender.Id);
             }
             else
             {
                 SpeakterDict.Add(sender.Id, target.Id);
                 SpeakterDict.Add(target.Id, sender.Id);
-
-                //sender.YacaVoiceClient()?.voiceSettings.inCallWith.RemoveAll( x => x != target.Id);
-                //target.YacaVoiceClient()?.voiceSettings.inCallWith.RemoveAll(x => x != sender.Id);
-
             }
         }
         public static void CallPlayerOldEffect(Player sender, Player target, bool state)
@@ -779,10 +751,8 @@ namespace YacaVoice
             {
                 sender.ResetSharedData("yaca:phoneSpeaker");
             }
-            //sender.NoteOverMap("~g~ToggleMute: " + state);
             voiceClient.voiceSettings.mutedOnPhone = state;
             NAPI.ClientEvent.TriggerClientEventForAll("client:yaca:phoneMute", sender.Id, state, onCallStop);
-            //voiceClient.TriggerEvent("client:yaca:phoneMute", sender.Id, state, onCallStop);
         }
 
         [RemoteEvent("toggleSpeaker")]

@@ -105,7 +105,6 @@ function callSocketBrowser(arge) {
                         input = `'${arge[i]}' `;
                     }
                 }
-                //mp.console.logInfo("Trigger " + arge[0] + " DATA: " + input);
                 websockbrowser.execute(`${arge[0]}(${input})`);
             } catch (e) { mp.console.logInfo("SocketError " + e); websockbrowser = null; }
         }
@@ -154,7 +153,7 @@ class YaCAClientModule {
             canChangeVoiceRange: true,
             maxVoiceRange: 4,
             lastMegaphoneState: false,
-            canUseMegaphone: true,
+            canUseMegaphone: false,
         };
 
         this.registerEvents();       
@@ -813,10 +812,6 @@ class YaCAClientModule {
             if (currentRoom != mp.game.interior.getRoomKeyFromEntity(player.handle) && !this.localPlayer.hasClearLosTo(player.handle, 17)) {
                 muffleIntensity = 10; // 10 is the maximum intensity
             }
-            // TODO: Check Vehicle Type | Check Window Open | Only an example 
-            //if (inVehicle && !player.vehicle || player.vehicle && !inVehicle || player.vehicle && inVehicle && distanceTo(player.position, localPos) > 2) {
-            //    muffleIntensity = 1;
-            //}
 
             if (!playersOnPhoneSpeaker.has(voiceSetting.remoteId)) {
                 players.set(voiceSetting.remoteId, {
@@ -1014,20 +1009,12 @@ class YaCAClientModule {
 const yacaclient = YaCAClientModule.getInstance();
 
 mp.events.add("render", () => {
-    if (!mp.players.local.hascharachter) return;
     if (!YaCAClientModule.allPlayers.size) return;
     const controls = mp.game.controls;
     controls.disableControlAction(0, 171, true);
     if (controls.isDisabledControlJustPressed(1, 243)) {
         yacaclient.changeVoiceRange();
     }
-    // CapsLock
-    //if (controls.isDisabledControlJustPressed(0, 171)) {
-    //    yacaclient.radioTalkingStart(true);
-    //}
-    //if (controls.isDisabledControlJustReleased(0, 171)) {
-    //    yacaclient.radioTalkingStart(false);
-    //}
 });
 mp.game.graphics.removeParticleFxInRange(0, 0, 0, 16000);
 
