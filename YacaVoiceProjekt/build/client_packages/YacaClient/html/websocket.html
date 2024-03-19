@@ -30,7 +30,7 @@
             webSocket.onerror = function (err) {
                 isConnected = false;
                 mp.trigger("YACA_Disconnected");
-                webSocket.close();
+                //webSocket.close();
             };
         }
         function responseData(evt) {
@@ -52,15 +52,26 @@
                     return;
                 }
                 noPluginActivated++;
-                if (noPluginActivated >= 120) {
+                if (noPluginActivated >= 30) {
                     // Kick Player
+                    noPluginActivated = 28;
                     if (typeof mp != "undefined") {
+                        //webSocket?.close();
                         mp.trigger("yaca:novoice", 120);
                     }
                 }
             }
         }
+        const checkWebSocket = function () {
+            if (webSocket) {
+                if (webSocket?.readyState == 3) {
+                    // Try Reconnect
+                    connect("127.0.0.1:30125");
+                }
+            }
+        }
         setInterval(monitorConnectState, 1000);
+        setInterval(checkWebSocket, 1000);
 
     </script>
 </body>

@@ -1,0 +1,11 @@
+﻿<meta>
+  <info name="YacaVoice" type="script" />
+  <script src="YacaVoice.dll"/>
+  <settings>
+    <!-- Required -->
+    <setting name="ServerUniqueIdentifier" value="piy1ieJLKvS3SpifAX8aQxnqRp8=" default="" description="Unique identifier of your TeamSpeak server" />
+    <setting name="IngameChannel" value="2" default="" description="ID of the TeamSpeak channel the client should get moved into" />
+    <setting name="DefaultChannel" value="1" default="" description="ID of the TeamSpeak channel the client should get moved into" />
+    <setting name="IngameChannelPassword" value="kjhgUZ68766KJLBjk" default="" description="Password of the TeamSpeak channel" />
+  </settings>
+</meta>
