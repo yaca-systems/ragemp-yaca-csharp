@@ -184,6 +184,7 @@ namespace YacaVoice
         [ServerEvent(Event.PlayerDisconnected)]
         public void OnPlayerDisconnected(Player client, DisconnectionType disconnectionType = DisconnectionType.Left, string reason = "")
         {
+            client.TriggerEvent("exitVoice");
             try
             {
                 Task.Run(async () =>

@@ -58,7 +58,7 @@ const defaultRadioChannelSettings = {
 }
 
 // Values are in meters
-const voiceRangesEnum = [1,3,8,15,20]
+const voiceRangesEnum = [1, 3, 8, 15, 20]
 
 const translations = {
     "plugin_not_activated": "Please activate your voiceplugin!",
@@ -75,7 +75,7 @@ const translations = {
 }
 function distanceTo(OwnPosition, OtherPosition, useZ = false) {
     return mp.game.gameplay.getDistanceBetweenCoords(OwnPosition.x, OwnPosition.y, OwnPosition.z, OtherPosition.x, OtherPosition.y, OtherPosition.z, useZ)
-   // return Math.sqrt(Math.pow(point.x - p.x, 2) + Math.pow(point.y - p.y, 2))
+    // return Math.sqrt(Math.pow(point.x - p.x, 2) + Math.pow(point.y - p.y, 2))
 }
 let websockbrowser = mp.browsers.new('http://package/YacaClient/html/websocket.html');
 websockbrowser.active = false;
@@ -156,7 +156,7 @@ class YaCAClientModule {
             canUseMegaphone: false,
         };
 
-        this.registerEvents();       
+        this.registerEvents();
     }
 
     /***
@@ -187,7 +187,7 @@ class YaCAClientModule {
             }
 
             if (this.firstConnect) return;
-            
+
             this.initRequest(dataObj);
         });
 
@@ -214,7 +214,7 @@ class YaCAClientModule {
             } catch {
                 return;
             }
-            const _dataObjects = (!data?.length?[data]:data);
+            const _dataObjects = (!data?.length ? [data] : data);
             for (const dataObj of _dataObjects) {
                 if (!dataObj || typeof dataObj.range == "undefined" || typeof dataObj.clientId == "undefined" || typeof dataObj.playerId == "undefined") continue;
                 const currentData = this.getPlayerByID(dataObj.playerId);
@@ -475,9 +475,22 @@ class YaCAClientModule {
             try {
                 payload = JSON.parse(payload);
             } catch (e) {
-                mp.console.logInfo("[YaCA-Websocket]: Error while parsing message: "+ e);
+                mp.console.logInfo("[YaCA-Websocket]: Error while parsing message: " + e);
                 return;
             }
+
+            if (payload.code === "HEARTBEAT") {
+                if (_voicerender != voicerender) {
+                    _voicerender = voicerender;
+                } else {
+                    // Kill all Browser or websocket only when render prozess killed(Server restart/crash)
+                    if (websockbrowser) {
+                        websockbrowser.destroy()
+                        websockbrowser = null;
+                    }
+                }
+            }
+
             if (payload.code === "OK") {
                 if (payload.requestType === "JOIN") {
                     mp.events.callRemote("server:yaca:addPlayer", parseInt(payload.message));
@@ -530,7 +543,7 @@ class YaCAClientModule {
                 if (oldValue && newValue) {
                     this.removePhoneSpeakerFromEntity(entity);
                 }
-                
+
                 let _newValue = JSON.parse(newValue);
                 let NewSet = new Set();
                 _newValue.forEach(xc => {
@@ -622,7 +635,7 @@ class YaCAClientModule {
             ingame_channel: dataObj.chid,
             default_channel: dataObj.deChid,
             ingame_channel_password: dataObj.channelPassword,
-            excluded_channels: [219,269,285], // Channel ID's where users can be in while being ingame
+            excluded_channels: [219, 269, 285], // Channel ID's where users can be in while being ingame
             /**
              * default are 2 meters
              * if the value is set to -1, the player voice range is taken
@@ -647,7 +660,7 @@ class YaCAClientModule {
 
     sendWebsocket(msg) {
         if (!websockbrowser) return mp.console.logInfo("[Voice-Websocket]: No websocket created");
-        callSocketBrowser(["callWebsocket",JSON.stringify(msg)]);
+        callSocketBrowser(["callWebsocket", JSON.stringify(msg)]);
     }
 
     syncLipsPlayer(player, isTalking) {
@@ -1008,7 +1021,13 @@ class YaCAClientModule {
 
 const yacaclient = YaCAClientModule.getInstance();
 
+let voicerender = 0;
+let _voicerender = 0;
 mp.events.add("render", () => {
+    voicerender++;
+    if (voicerender > 1500) {
+        voicerender = 0;
+    }
     if (!YaCAClientModule.allPlayers.size) return;
     const controls = mp.game.controls;
     controls.disableControlAction(0, 171, true);
@@ -1046,15 +1065,6 @@ mp.events.add("yaca:synclips", (o, s) => {
         p.playFacialAnim(animationData.name, animationData.dict);
     }
 })
-mp.events.add("playerQuit", (player) => {
-    if (player == mp.players.local) {
-        if (websockbrowser) {
-            websockbrowser.active = true;
-            websockbrowser.destroy();
-            websockbrowser = null;
-        }
-    }
-});
 
 mp.events.add("exitVoice", () => {
     mp.browsers.forEach(x => {
