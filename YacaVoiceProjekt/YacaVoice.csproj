@@ -21,7 +21,7 @@
 
   <ItemGroup>
     <Reference Include="Bootstrapper">
-      <HintPath>C:\Users\sp-di\Downloads\V-main\RageDeps\Bootstrapper.dll</HintPath>
+      <HintPath>RAGEMP_Req\Bootstrapper.dll</HintPath>
     </Reference>
   </ItemGroup>
 
@@ -32,7 +32,7 @@
   </ItemGroup>
 
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="del &quot;$(ProjectDir)\server-files\dotnet\resources\RageServer\*.*&quot; /Q&#xD;&#xA;xcopy &quot;$(OutDir)*&quot; &quot;$(ProjectDir)\build\dotnet\resources\YacaVoiceServer&quot; /Y&#xD;&#xA;&#xD;&#xA;del &quot;$(ProjectDir)\build\dotnet\resources\YacaVoiceServer\*.json&quot; /Q" />
+    <Exec Command="xcopy &quot;$(OutDir)*&quot; &quot;$(ProjectDir)\build\dotnet\resources\YacaVoiceServer&quot; /Y&#xD;&#xA;&#xD;&#xA;del &quot;$(ProjectDir)\build\dotnet\resources\YacaVoiceServer\*.json&quot; /Q" />
   </Target>
 
 </Project>

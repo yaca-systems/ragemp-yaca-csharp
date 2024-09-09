@@ -26,7 +26,7 @@ const CommDeviceMode = {
 let LipsisTalking = false;
 /**
  * @typedef {Object} YacaResponse
- * @property {"RENAME_CLIENT" | "MOVE_CLIENT" | "MUTE_STATE" | "TALK_STATE" | "OK" | "WRONG_TS_SERVER" | "NOT_CONNECTED" | "MOVE_ERROR" | "OUTDATED_VERSION" | "WAIT_GAME_INIT" | "HEARTBEAT"} code - The response code.
+ * @property {"RENAME_CLIENT" | "MOVE_CLIENT" | "SOUND_STATE" | "TALK_STATE" | "OK" | "WRONG_TS_SERVER" | "NOT_CONNECTED" | "MOVE_ERROR" | "OUTDATED_VERSION" | "WAIT_GAME_INIT" | "HEARTBEAT" | "MAX_PLAYER_COUNT_REACHED" | "MOVED_CHANNEL"} code - The response code.
  * @property {string} requestType - The type of the request.
  * @property {string} message - The response message.
  */
@@ -506,8 +506,14 @@ class YaCAClientModule {
                 return;
             }
 
-            if (payload.code === "TALK_STATE" || payload.code === "MUTE_STATE") {
+            if (payload.code === "TALK_STATE" || payload.code === "MUTE_STATE" /* deprecated in 1.7.x */ || payload.code === "SOUND_STATE" || payload.code === "OTHER_TALK_STATE") {
                 this.handleTalkState(payload);
+                return;
+            }
+            // in version 1.7.x
+            if (payload.code === "MOVED_CHANNEL") {
+                // Message returns | INGAME_CHANNEL or EXCLUDED_CHANNEL
+                mp.events.callRemote("YACA:MOVED_CHANNEL", payload.message);
                 return;
             }
 
@@ -791,17 +797,52 @@ class YaCAClientModule {
 
     /* ======================== BASIC SYSTEM ======================== */
     handleTalkState(payload) {
-        // Update state if player is muted or not
-        if (payload.code === "MUTE_STATE") {
-            this.isPlayerMuted = !!parseInt(payload.message);
+        // Update state if player is muted or not before YACA 1.7
+        //if (payload.code === "MUTE_STATE") {
+        //    this.isPlayerMuted = !!parseInt(payload.message);
+        //    mp.events.callRemote("server:yaca:mutetToggle", this.isPlayerMuted);
+        //}
+
+        // Since YACA 1.7 Deprecate MUTE_STATE
+        if (payload.code === "SOUND_STATE") {
+            const payloadData = JSON.parse(payload.message)
+            this.isPlayerMuted = (
+                payloadData.microphoneMuted || payloadData.microphoneDisabled
+                || payloadData.soundMuted || payloadData.soundDisabled
+            );
             mp.events.callRemote("server:yaca:mutetToggle", this.isPlayerMuted);
         }
 
-        const isTalking = !this.isPlayerMuted && !!parseInt(payload.message);
-        if (this.isTalking != isTalking) {
-            this.isTalking = isTalking;
-            this.syncLipsPlayer(this.localPlayer, isTalking);
+        //const isTalking = !this.isPlayerMuted && !!parseInt(payload.message);
+        //if (this.isTalking != isTalking) {
+        //    this.isTalking = isTalking;
+        //    this.syncLipsPlayer(this.localPlayer, isTalking);
+        //}
+
+        if (this.useLocalLipsync && payload.code === "OTHER_TALK_STATE") {
+            const data = JSON.parse(payload.message);
+            let remoteID = undefined;
+            const allPlayers = YaCAClientModule.allPlayers;
+            for (const [key, playerData] of allPlayers) {
+                if (playerData.clientId == data.clientId) {
+                    remoteID = key;
+                    break;
+                }
+            }
+            const player = alt.Player.getByRemoteID(remoteID);
+            if (player) {
+                this.syncLipsPlayer(player, !!data.isTalking);
+            }
         }
+
+        if (payload.code != "OTHER_TALK_STATE") {
+            const isTalking = !this.isPlayerMuted && !!parseInt(payload.message);
+            if (this.isTalking != isTalking) {
+                this.isTalking = isTalking;
+                this.syncLipsPlayer(this.localPlayer, isTalking);
+            }
+        }
+
     }
     calcPlayers() {
         const players = new Map();
@@ -845,6 +886,7 @@ class YaCAClientModule {
             }
 
             // Phone speaker handling.
+            let workaround = 0;
             if (voiceSetting.phoneCallMemberIds && distance <= settings.maxPhoneSpeakerRange) {
                 for (const phoneCallMemberId of voiceSetting.phoneCallMemberIds) {
                     let phoneCallMember = this.getPlayerByID(phoneCallMemberId);
@@ -862,9 +904,12 @@ class YaCAClientModule {
                     });
 
                     playersOnPhoneSpeaker.add(phoneCallMemberId);
+                    if (workaround < 1) {
+                        YaCAClientModule.setPlayersCommType(phoneCallMember, YacaFilterEnum.PHONE_SPEAKER, true, undefined, settings.maxPhoneSpeakerRange, CommDeviceMode.RECEIVER, CommDeviceMode.SENDER);
+                    }
 
-                    YaCAClientModule.setPlayersCommType(phoneCallMember, YacaFilterEnum.PHONE_SPEAKER, true, undefined, settings.maxPhoneSpeakerRange, CommDeviceMode.RECEIVER, CommDeviceMode.SENDER);
-
+                    workaround++;
+                    //mp.console.logInfo("currentlyPhoneSpeakerApplied add Player ID: " + phoneCallMember.clientId);
                     this.currentlyPhoneSpeakerApplied.add(phoneCallMemberId);
                 }
             }
@@ -1067,10 +1112,10 @@ mp.events.add("yaca:synclips", (o, s) => {
 })
 
 mp.events.add("exitVoice", () => {
-    mp.browsers.forEach(x => {
-        x.destroy();
-    });
-    websockbrowser = null;
+    if (websockbrowser) {
+        websockbrowser.destroy()
+        websockbrowser = null;
+    }
 });
 
 exports.YaCAClientModule = YaCAClientModule;

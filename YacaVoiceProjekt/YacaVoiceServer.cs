@@ -107,12 +107,12 @@ namespace YacaVoice
     {
         #region Propertys
         public static YacaVoiceServer Instance { get; private set; }
-        public int maxRadioChannels { get; private set; } = 9;
-        public string UNIQUE_SERVER_ID { get; private set; } = "";
-        public int CHANNEL_ID { get; private set; } = 2; // Ingame TS Channel ID
-        public string CHANNEL_PASSWORD { get; private set; } = "";
-        public int DEFAULT_CHANNEL_ID { get; private set; } = 1; // AFK / Eingangshalle
-        public bool USE_WHISPER { get; private set; } = false;
+        public int maxRadioChannels { get; set; } = 9;
+        public static string UNIQUE_SERVER_ID { get; set; } = "";
+        public int CHANNEL_ID { get; set; } = 2; // Ingame TS Channel ID
+        public string CHANNEL_PASSWORD { get; set; } = "";
+        public int DEFAULT_CHANNEL_ID { get; set; } = 1; // AFK / Eingangshalle
+        public bool USE_WHISPER { get; set; } = false;
 
         public YacaVoiceClient[] VoiceClients => _voiceClients.Values.ToArray();
         private Dictionary<Player, YacaVoiceClient> _voiceClients = new Dictionary<Player, YacaVoiceClient>();
@@ -141,6 +141,7 @@ namespace YacaVoice
             DEFAULT_CHANNEL_ID = NAPI.Resource.GetSetting<string>(this, "DefaultChannel").GetNumbersInt();
         }
 
+        // Trigger this when Player has pass all conditions to init the Voice for Client
         public void ConnectToVoice(Player client)
         {
             try
@@ -746,14 +747,12 @@ namespace YacaVoice
             {
                 if (SpeakterDict.ContainsKey(sender.Id))
                 {
-                    List<int> phoneNumbers = new List<int> { sender.Id, SpeakterDict[sender.Id] };
+                    List<int> phoneNumbers = new List<int> { SpeakterDict[sender.Id], sender.Id };
                     sender.SetSharedData("yaca:phoneSpeaker", JsonConvert.SerializeObject(phoneNumbers));
-                    sender.NoteOverMap("~g~Set Phone Speaker " + sender.Id + " > " + SpeakterDict[sender.Id]);
                 }
             }
             else
             {
-                sender.NoteOverMap("~r~Reset Phone Speaker");
                 sender.ResetSharedData("yaca:phoneSpeaker");
             }
         }
